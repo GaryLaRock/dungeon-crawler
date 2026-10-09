@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0b0a0d">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Dungeon">
+<meta name="format-detection" content="telephone=no">
+<title>Dungeon Crawler</title>
+<style>
+  :root { --btn: 64px; --gap: 8px; --side: 230px; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0a0d; color: #d8c8a0;
+    font-family: "Courier New", monospace; overscroll-behavior: none;
+    -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent; -webkit-text-size-adjust: 100%; }
+  body { position: fixed; inset: 0; touch-action: none; }
+
+  /* ---- App shell: fills the screen, respects notches / home indicator ---- */
+  #app { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right))
+             max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left)); }
+  #frame { width: 100%; height: 100%; max-width: 1280px; max-height: 820px; display: flex; gap: var(--gap);
+    padding: var(--gap); background: #2a2620; border: 4px ridge #6b5d45; box-shadow: 0 0 40px #000; }
+
+  /* ---- View column: 3D view + message log ---- */
+  #viewCol { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: var(--gap); }
+  #viewWrap { position: relative; flex: 1; min-height: 0; background: #000; border: 3px inset #5a4e3a; }
+  #view { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain;
+    image-rendering: pixelated; image-rendering: crisp-edges; cursor: pointer; touch-action: none; }
+  #overlay { position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+    flex-direction: column; background: rgba(0,0,0,.6); text-align: center; padding: 8px; touch-action: none; }
+  #overlay h1 { color: #ffd76a; letter-spacing: 4px; text-shadow: 3px 3px #000; margin: 0 0 8px;
+    font-size: clamp(20px, 6vmin, 40px); }
+  #overlay div { font-size: clamp(12px, 3vmin, 16px); }
+  #fsBtn { position: absolute; top: 6px; right: 6px; width: 34px; height: 34px; display: none;
+    background: rgba(40,34,26,.75); color: #f0e0b0; border: 2px outset #7a6c52; font-size: 18px;
+    line-height: 1; padding: 0; cursor: pointer; touch-action: manipulation; z-index: 2; }
+  #log { flex: 0 0 auto; height: 80px; background: #100e0c; border: 3px inset #5a4e3a; padding: 4px 8px;
+    overflow: hidden; font-size: 15px; line-height: 18px; display: flex; flex-direction: column; justify-content: flex-end; }
+  #log div { flex: 0 0 auto; opacity: .55; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #log div:last-child { opacity: 1; color: #fff2c8; white-space: normal; }
+
+  /* ---- Side: compass + minimap + d-pad ---- */
+  #side { flex: 0 0 var(--side); min-height: 0; display: flex; flex-direction: column; gap: var(--gap); align-items: stretch; }
+  #info { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: var(--gap); }
+  .panel { background: #1a1714; border: 3px inset #5a4e3a; padding: 4px; }
+  #compass { text-align: center; font-size: 20px; font-weight: bold; color: #ffd76a; line-height: 1.15; }
+  #compass small { display: block; font-size: 11px; color: #9c8e6c; font-weight: normal; }
+  #mapPanel { flex: 1; min-height: 60px; position: relative; }
+  #minimap { position: absolute; inset: 4px; width: calc(100% - 8px); height: calc(100% - 8px);
+    object-fit: contain; image-rendering: pixelated; }
+  #pad { display: grid; grid-template-columns: repeat(3, var(--btn)); grid-auto-rows: var(--btn);
+    gap: 6px; justify-content: center; touch-action: none; }
+  #pad button { font-size: calc(var(--btn) * 0.38); background: #4a4234; color: #f0e0b0; padding: 0;
+    border: 3px outset #7a6c52; cursor: pointer; font-family: inherit; touch-action: none; }
+  #pad button.down { border-style: inset; background: #2e2920; color: #ffd76a; }
+  #help { font-size: 11px; color: #8c7e5c; text-align: center; line-height: 1.4; }
+
+  /* ---- Portrait phones: view on top, compact log, map, big d-pad at thumb height ---- */
+  @media (orientation: portrait) {
+    :root { --btn: clamp(56px, min(26vw, 11vh), 96px); --gap: 6px; }
+    #frame { flex-direction: column; max-height: none; border-width: 3px; padding: 6px; }
+    #viewCol { flex: 0 0 auto; }
+    #viewWrap { flex: 0 0 auto; aspect-ratio: 320 / 200; }
+    #log { height: 74px; font-size: 13px; line-height: 16px; }
+    #side { flex: 1 1 auto; }
+    #info { flex-direction: row; }
+    #compass { flex: 0 0 auto; writing-mode: horizontal-tb; display: flex; flex-direction: column; justify-content: center; min-width: 96px; }
+    #mapPanel { flex: 1 1 auto; }
+    #pad { padding-bottom: 4px; }
+    #help { display: none; }
+  }
+  /* ---- Landscape phones (short screens): tighter spacing ---- */
+  @media (orientation: landscape) and (max-height: 500px) {
+    :root { --btn: clamp(56px, 16vh, 64px); --gap: 5px; --side: calc(var(--btn) * 3 + 12px); }
+    #frame { border-width: 3px; padding: 5px; max-height: none; }
+    #log { height: 54px; font-size: 12px; line-height: 14px; padding: 3px 6px; }
+    #compass { font-size: 16px; } #compass small { display: none; }
+    #help { display: none; }
+  }
+</style>
+</head>
+<body>
+<div id="app"><div id="frame">
+  <div id="viewCol">
+    <div id="viewWrap">
+      <canvas id="view" width="320" height="200"></canvas>
+      <div id="overlay"><h1>FLOOR CLEARED</h1><div>You descend the stairs into deeper darkness...</div>
+        <div style="margin-top:10px;color:#aaa">Tap or press R to play again</div></div>
+      <button id="fsBtn" title="Fullscreen">&#x26F6;</button>
+    </div>
+    <div id="log"></div>
+  </div>
+  <div id="side">
+    <div id="info">
+      <div class="panel" id="compass">East<small>Floor 1</small></div>
+      <div class="panel" id="mapPanel"><canvas id="minimap" width="128" height="128"></canvas></div>
+    </div>
+    <div id="pad">
+      <button data-act="turnL" title="Turn left (Q)">&#8630;</button>
+      <button data-act="fwd" title="Forward (W)">&#9650;</button>
+      <button data-act="turnR" title="Turn right (E)">&#8631;</button>
+      <button data-act="left" title="Strafe left (A)">&#9664;</button>
+      <button data-act="back" title="Back (S)">&#9660;</button>
+      <button data-act="right" title="Strafe right (D)">&#9654;</button>
+    </div>
+    <div id="help">W/S move &middot; A/D strafe &middot; Q/E turn<br>Space / tap view: open door<br>Swipe view: turn / step</div>
+  </div>
+</div></div>
+
+<script>
+"use strict";
+/* =====================================================================
+ * 1. CONFIG & UTILITIES
+ * ===================================================================== */
+const VIEW_W = 320, VIEW_H = 200;
+const TEX = 32;                 // texture size (pixels)
+const FOV_PLANE = 0.70;         // camera plane length (~70 deg FOV)
+const MOVE_MS = 160, TURN_MS = 160;
+const CAM_BACK = 0.45;          // camera sits near the back of its tile (EOB-style framing)
+
+function mulberry32(seed) {
+  return function () {
+    seed |= 0; seed = seed + 0x6D2B79F5 | 0;
+    let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+
+/* =====================================================================
+ * 2. MAP DATA
+ *   # wall   . floor   D closed door   S stairs down   @ start (floor)
+ * ===================================================================== */
+const FLOOR_1 = [
+  "################",
+  "#@...#.........#",
+  "#.##.#.#####.#.#",
+  "#.#..D.#...#.#.#",
+  "#.#.####.#.#.#.#",
+  "#...#....#...#.#",
+  "###.#.####D###.#",
+  "#...#.#......#.#",
+  "#.###.#.####.#.#",
+  "#.....#.#..#...#",
+  "#####.#.#S.#.###",
+  "#.....#.##D#...#",
+  "#.#####......#.#",
+  "#.#...######.#.#",
+  "#...#........#.#",
+  "################",
+];
+
+const TILE = { WALL: "#", FLOOR: ".", DOOR: "D", OPEN_DOOR: "d", STAIRS: "S" };
+const DIRS = [            // index: 0=N 1=E 2=S 3=W
+  { name: "N", full: "North", dx: 0,  dy: -1 },
+  { name: "E", full: "East",  dx: 1,  dy: 0 },
+  { name: "S", full: "South", dx: 0,  dy: 1 },
+  { name: "W", full: "West",  dx: -1, dy: 0 },
+];
+
+class DungeonMap {
+  constructor(rows) {
+    this.h = rows.length; this.w = rows[0].length;
+    this.cells = rows.map(r => r.split(""));
+    this.explored = rows.map(r => new Array(r.length).fill(false));
+    this.start = { x: 1, y: 1 };
+    for (let y = 0; y < this.h; y++) for (let x = 0; x < this.w; x++)
+      if (this.cells[y][x] === "@") { this.start = { x, y }; this.cells[y][x] = TILE.FLOOR; }
+  }
+  get(x, y) { return (x < 0 || y < 0 || x >= this.w || y >= this.h) ? TILE.WALL : this.cells[y][x]; }
+  set(x, y, t) { this.cells[y][x] = t; }
+  isSolid(t) { return t === TILE.WALL || t === TILE.DOOR; }
+  isWalkable(x, y) { return !this.isSolid(this.get(x, y)); }
+  explore(x, y) { if (x >= 0 && y >= 0 && x < this.w && y < this.h) this.explored[y][x] = true; }
+}
+
+/* =====================================================================
+ * 3. PROCEDURAL TEXTURES  (each = Uint8ClampedArray TEX*TEX*3, RGB)
+ * ===================================================================== */
+const Textures = (() => {
+  function make(fn, seed) {
+    const rnd = mulberry32(seed), d = new Uint8ClampedArray(TEX * TEX * 3);
+    const put = (x, y, r, g, b) => { const i = (y * TEX + x) * 3; d[i] = r; d[i + 1] = g; d[i + 2] = b; };
+    fn(put, rnd); return d;
+  }
+
+  // Stone bricks: 4 courses of 8px, 16px bricks, staggered rows
+  const wall = make((put, rnd) => {
+    const brickTone = {};
+    for (let y = 0; y < TEX; y++) for (let x = 0; x < TEX; x++) {
+      const row = y >> 3, off = (row & 1) ? 8 : 0, bx = ((x + off) & 31) >> 4;
+      const lx = (x + off) & 15, ly = y & 7;
+      const key = row + "_" + bx;
+      if (!(key in brickTone)) brickTone[key] = [rnd() * 30 - 15, rnd() < 0.2 ? 1 : 0];
+      const [tone, mossy] = brickTone[key];
+      if (ly === 7 || lx === 15) { const m = 30 + rnd() * 10; put(x, y, m, m, m + 4); continue; }
+      let v = 105 + tone + (rnd() * 22 - 11);
+      if (ly === 0 || lx === 0) v += 28;            // top/left highlight
+      else if (ly === 6 || lx === 14) v -= 26;      // bottom/right shade
+      let r = v * 0.95, g = v * 0.95, b = v * 1.05;
+      if (mossy && ly > 3 && rnd() < 0.35) { r = v * 0.6; g = v * 0.85; b = v * 0.5; }
+      if (rnd() < 0.03) { r *= 0.6; g *= 0.6; b *= 0.6; }  // pits
+      put(x, y, r, g, b);
+    }
+  }, 1337);
+
+  // Wooden door with iron bands, frame and a ring handle
+  const door = make((put, rnd) => {
+    for (let y = 0; y < TEX; y++) for (let x = 0; x < TEX; x++) {
+      let r, g, b;
+      if (x < 3 || x > 28 || y < 3) {                 // stone frame
+        const v = 80 + rnd() * 25 + ((x === 2 || x === 29 || y === 2) ? -30 : 0);
+        r = v; g = v; b = v * 1.05;
+      } else {
+        const plank = (x - 3) % 6, grain = Math.sin(y * 0.9 + x * 3.1) * 8;
+        let v = 0.8 + rnd() * 0.25;
+        if (plank === 0) v *= 0.5;                      // plank gap
+        r = (120 + grain) * v; g = (74 + grain * 0.6) * v; b = (38 + grain * 0.3) * v;
+        if (y === 8 || y === 9 || y === 24 || y === 25) {  // iron bands
+          const m = (y === 8 || y === 24) ? 110 : 70; r = m; g = m; b = m + 8;
+          if (x % 6 === 4) { r = g = b = 170; }          // rivets
+        }
+        const dx = x - 23, dy = y - 17, dd = dx * dx + dy * dy;  // ring handle
+        if (dd >= 4 && dd <= 7) { r = 190; g = 170; b = 90; }
+      }
+      put(x, y, r, g, b);
+    }
+  }, 42);
+
+  // Flagstone floor
+  const floor = make((put, rnd) => {
+    for (let y = 0; y < TEX; y++) for (let x = 0; x < TEX; x++) {
+      const lx = x & 15, ly = y & 15, edge = lx === 0 || ly === 0;
+      const tile = ((x >> 4) + (y >> 4) * 2);
+      let v = 70 + tile * 5 + rnd() * 16;
+      if (edge) v = 28;
+      else if (lx === 1 || ly === 1) v += 12;
+      put(x, y, v * 0.95, v * 0.88, v * 0.78);
+    }
+  }, 7);
+
+  // Rough ceiling stone
+  const ceil = make((put, rnd) => {
+    for (let y = 0; y < TEX; y++) for (let x = 0; x < TEX; x++) {
+      const beam = (y & 15) < 2;
+      let v = beam ? 30 : 50 + rnd() * 18;
+      put(x, y, v * 0.85, v * 0.8, v * 0.9);
+    }
+  }, 99);
+
+  // Stairs down: a dark descending pit of steps in the floor
+  const stairs = make((put, rnd) => {
+    for (let y = 0; y < TEX; y++) for (let x = 0; x < TEX; x++) {
+      if (x < 3 || x > 28 || y < 3 || y > 28) {        // floor rim
+        const v = 70 + rnd() * 14; put(x, y, v * 0.95, v * 0.88, v * 0.78); continue;
+      }
+      const step = (y - 3) >> 2;                         // 0..6, deeper = darker
+      const lip = ((y - 3) & 3) === 0;
+      const v = (lip ? 120 : 95) * (1 - step * 0.13) + rnd() * 8;
+      put(x, y, v, v * 0.92, v * 0.8);
+    }
+  }, 5);
+
+  return { wall, door, floor, ceil, stairs };
+})();
+
+/* =====================================================================
+ * 4. RENDERER  (grid raycaster, view snapped to 90 deg except while animating)
+ * ===================================================================== */
+const Renderer = (() => {
+  const canvas = document.getElementById("view");
+  const ctx = canvas.getContext("2d");
+  const img = ctx.createImageData(VIEW_W, VIEW_H);
+  const buf = img.data;
+  const zBuffer = new Float32Array(VIEW_W);   // for future sprites (monsters/items)
+  const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+  let flicker = 1;
+
+  // Distance light falloff (torchlight), quantized with ordered dithering for retro banding
+  function shade(dist, x, y) {
+    const l = flicker * 1.35 / (1 + 0.22 * dist * dist);
+    const q = l * 10 + (BAYER[(y & 3) * 4 + (x & 3)] / 16 - 0.5);
+    return clamp(Math.round(q) / 10, 0, 1);
+  }
+  function plot(x, y, tex, ti, s) {
+    const o = (y * VIEW_W + x) * 4;
+    buf[o] = tex[ti] * s; buf[o + 1] = tex[ti + 1] * s; buf[o + 2] = tex[ti + 2] * s; buf[o + 3] = 255;
+  }
+
+  function render(map, cam, time) {
+    flicker = 0.95 + 0.05 * Math.sin(time * 0.011) * Math.sin(time * 0.0037);
+    const dirX = Math.cos(cam.angle), dirY = Math.sin(cam.angle);
+    const planeX = -dirY * FOV_PLANE, planeY = dirX * FOV_PLANE;
+    const half = VIEW_H / 2;
+
+    // --- floor & ceiling ---
+    const rx0 = dirX - planeX, ry0 = dirY - planeY, rx1 = dirX + planeX, ry1 = dirY + planeY;
+    for (let y = half + 1; y < VIEW_H; y++) {
+      const rowDist = half / (y - half);
+      const stepX = rowDist * (rx1 - rx0) / VIEW_W, stepY = rowDist * (ry1 - ry0) / VIEW_W;
+      let fx = cam.x + rowDist * rx0, fy = cam.y + rowDist * ry0;
+      const cy = VIEW_H - y - 1;
+      for (let x = 0; x < VIEW_W; x++) {
+        const cx = Math.floor(fx), cyy = Math.floor(fy);
+        const tx = Math.floor(TEX * (fx - cx)) & (TEX - 1), ty = Math.floor(TEX * (fy - cyy)) & (TEX - 1);
+        const ti = (ty * TEX + tx) * 3;
+        const ftex = map.get(cx, cyy) === TILE.STAIRS ? Textures.stairs : Textures.floor;
+        plot(x, y, ftex, ti, shade(rowDist, x, y));
+        plot(x, cy, Textures.ceil, ti, shade(rowDist, x, cy) * 0.9);
+        fx += stepX; fy += stepY;
+      }
+    }
+
+    // --- walls (DDA) ---
+    for (let x = 0; x < VIEW_W; x++) {
+      const camX = 2 * (x + 0.5) / VIEW_W - 1;
+      const rdx = dirX + planeX * camX, rdy = dirY + planeY * camX;
+      let mx = Math.floor(cam.x), my = Math.floor(cam.y);
+      const ddx = Math.abs(1 / rdx), ddy = Math.abs(1 / rdy);
+      const sx = rdx < 0 ? -1 : 1, sy = rdy < 0 ? -1 : 1;
+      let sdx = rdx < 0 ? (cam.x - mx) * ddx : (mx + 1 - cam.x) * ddx;
+      let sdy = rdy < 0 ? (cam.y - my) * ddy : (my + 1 - cam.y) * ddy;
+      let side = 0, tile = TILE.FLOOR, guard = 0;
+      map.explore(mx, my);
+      while (guard++ < 64) {
+        if (sdx < sdy) { sdx += ddx; mx += sx; side = 0; } else { sdy += ddy; my += sy; side = 1; }
+        tile = map.get(mx, my);
+        map.explore(mx, my);
+        if (map.isSolid(tile)) break;
+      }
+      const dist = side === 0 ? sdx - ddx : sdy - ddy;
+      zBuffer[x] = dist;
+      const lineH = VIEW_H / dist;
+      const top = Math.floor(half - lineH / 2), bot = Math.floor(half + lineH / 2);
+      let wallX = side === 0 ? cam.y + dist * rdy : cam.x + dist * rdx;
+      wallX -= Math.floor(wallX);
+      let tx = Math.floor(wallX * TEX);
+      if ((side === 0 && rdx < 0) || (side === 1 && rdy > 0)) tx = TEX - 1 - tx;  // un-mirror
+      const tex = tile === TILE.DOOR ? Textures.door : Textures.wall;
+      const sideMul = side === 1 ? 0.78 : 1;
+      const y0 = Math.max(0, top), y1 = Math.min(VIEW_H - 1, bot);
+      for (let y = y0; y <= y1; y++) {
+        const ty = Math.min(TEX - 1, Math.floor((y - top) / lineH * TEX));
+        plot(x, y, tex, (ty * TEX + tx) * 3, shade(dist, x, y) * sideMul);
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+  }
+  return { render, canvas, zBuffer };
+})();
+
+/* =====================================================================
+ * 5. GAME STATE & ACTIONS
+ * ===================================================================== */
+const Game = {
+  map: null,
+  player: { x: 0, y: 0, dir: 1 },
+  cam: { x: 0, y: 0, angle: 0 },     // rendered (interpolated) camera
+  anim: null,                        // current step/turn animation
+  queued: null,                      // one buffered input during animation
+  cleared: false,
+  stepCount: 0,
+
+  reset() {
+    this.map = new DungeonMap(FLOOR_1);
+    Object.assign(this.player, { x: this.map.start.x, y: this.map.start.y, dir: 1 });
+    this.syncCam(); this.anim = null; this.queued = null; this.cleared = false; this.stepCount = 0;
+    UI.hideOverlay(); UI.clearLog();
+    UI.log("You awaken in a cold stone corridor. Find the stairs down.");
+  },
+  dirAngle(d) { return (d - 1) * Math.PI / 2; },
+  camPos(x, y, dir) { const d = DIRS[dir]; return { x: x + 0.5 - d.dx * CAM_BACK, y: y + 0.5 - d.dy * CAM_BACK }; },
+  syncCam() { Object.assign(this.cam, this.camPos(this.player.x, this.player.y, this.player.dir)); this.cam.angle = this.dirAngle(this.player.dir); },
+  facingTile() { const d = DIRS[this.player.dir]; return { x: this.player.x + d.dx, y: this.player.y + d.dy }; },
+
+  act(action) {
+    if (this.cleared && action !== "restart") return;
+    if (this.anim) { this.queued = action; return; }
+    switch (action) {
+      case "fwd":   return this.tryMove(0);
+      case "right": return this.tryMove(1);
+      case "back":  return this.tryMove(2);
+      case "left":  return this.tryMove(3);
+      case "turnL": return this.turn(-1);
+      case "turnR": return this.turn(1);
+      case "use":   return this.use();
+    }
+  },
+  tryMove(rel) {
+    const d = DIRS[(this.player.dir + rel) % 4];
+    const nx = this.player.x + d.dx, ny = this.player.y + d.dy, t = this.map.get(nx, ny);
+    if (t === TILE.DOOR) return UI.log("The door is closed. (Space or tap to open)");
+    if (!this.map.isWalkable(nx, ny)) return UI.log("You bump into a wall.");
+    const from = { x: this.cam.x, y: this.cam.y };
+    this.player.x = nx; this.player.y = ny; this.stepCount++;
+    this.startAnim(MOVE_MS, from, this.camPos(nx, ny, this.player.dir), this.cam.angle, this.cam.angle, () => this.onEnter());
+  },
+  turn(delta) {
+    const a0 = this.dirAngle(this.player.dir);
+    this.player.dir = (this.player.dir + delta + 4) % 4;
+    const pos = { x: this.cam.x, y: this.cam.y };
+    this.startAnim(TURN_MS, pos, this.camPos(this.player.x, this.player.y, this.player.dir), a0, a0 + delta * Math.PI / 2, () => this.syncCam());
+  },
+  use() {
+    const f = this.facingTile(), t = this.map.get(f.x, f.y);
+    if (t === TILE.DOOR) { this.map.set(f.x, f.y, TILE.OPEN_DOOR); UI.log("A door creaks open."); }
+    else if (t === TILE.OPEN_DOOR) { this.map.set(f.x, f.y, TILE.DOOR); UI.log("You pull the door shut."); }
+    else if (t === TILE.WALL) UI.log("Solid stone. Nothing happens.");
+    else UI.log("There is nothing here to use.");
+  },
+  onEnter() {
+    this.syncCam();
+    if (this.map.get(this.player.x, this.player.y) === TILE.STAIRS) {
+      this.cleared = true;
+      UI.log("You find the stairs leading down. Floor cleared! (" + this.stepCount + " steps)");
+      UI.showOverlay();
+    }
+  },
+  startAnim(ms, p0, p1, a0, a1, done) {
+    this.anim = { t0: performance.now(), ms, p0, p1, a0, a1, done };
+  },
+  update(now) {
+    const a = this.anim; if (!a) return;
+    let k = clamp((now - a.t0) / a.ms, 0, 1);
+    const e = k * k * (3 - 2 * k);    // smoothstep
+    this.cam.x = a.p0.x + (a.p1.x - a.p0.x) * e;
+    this.cam.y = a.p0.y + (a.p1.y - a.p0.y) * e;
+    this.cam.angle = a.a0 + (a.a1 - a.a0) * e;
+    if (k >= 1) {
+      this.anim = null; a.done();
+      if (this.queued) { const q = this.queued; this.queued = null; this.act(q); }
+    }
+  },
+};
+
+/* =====================================================================
+ * 6. UI  (compass, minimap/automap, message log, overlay)
+ * ===================================================================== */
+const UI = (() => {
+  const logEl = document.getElementById("log");
+  const compassEl = document.getElementById("compass");
+  const overlay = document.getElementById("overlay");
+  const mm = document.getElementById("minimap"), mctx = mm.getContext("2d");
+  const lines = [];
+
+  function log(msg) {
+    lines.push(msg); while (lines.length > 4) lines.shift();
+    logEl.innerHTML = lines.map(l => "<div>&gt; " + l + "</div>").join("");
+  }
+  function clearLog() { lines.length = 0; logEl.innerHTML = ""; }
+  function showOverlay() { overlay.style.display = "flex"; }
+  function hideOverlay() { overlay.style.display = "none"; }
+
+  function drawCompass(dir) {
+    compassEl.innerHTML = DIRS[dir].full + "<small>Floor 1</small>";
+  }
+
+  function drawMinimap(map, player) {
+    const cs = Math.floor(mm.width / Math.max(map.w, map.h));
+    mctx.fillStyle = "#000"; mctx.fillRect(0, 0, mm.width, mm.height);
+    for (let y = 0; y < map.h; y++) for (let x = 0; x < map.w; x++) {
+      if (!map.explored[y][x]) continue;
+      const t = map.get(x, y);
+      mctx.fillStyle = t === TILE.WALL ? "#6a6470" : t === TILE.DOOR ? "#a0642a"
+        : t === TILE.OPEN_DOOR ? "#5a3c1e" : t === TILE.STAIRS ? "#e0c040" : "#2c2a26";
+      mctx.fillRect(x * cs, y * cs, cs, cs);
+      if (t === TILE.WALL) { mctx.fillStyle = "#4a4650"; mctx.fillRect(x * cs, y * cs + cs - 1, cs, 1); }
+    }
+    // player arrow
+    const px = player.x * cs + cs / 2, py = player.y * cs + cs / 2, d = DIRS[player.dir];
+    mctx.save(); mctx.translate(px, py); mctx.rotate(Math.atan2(d.dy, d.dx));
+    mctx.fillStyle = "#ff4030";
+    mctx.beginPath(); mctx.moveTo(cs * 0.45, 0); mctx.lineTo(-cs * 0.35, -cs * 0.35);
+    mctx.lineTo(-cs * 0.15, 0); mctx.lineTo(-cs * 0.35, cs * 0.35); mctx.closePath(); mctx.fill();
+    mctx.restore();
+  }
+  return { log, clearLog, showOverlay, hideOverlay, drawCompass, drawMinimap };
+})();
+
+/* =====================================================================
+ * 7. INPUT  (keyboard, d-pad with hold-to-repeat, swipe/tap on the view)
+ * ===================================================================== */
+const INPUT = {
+  REPEAT_DELAY: 320,      // ms before a held d-pad button starts repeating
+  REPEAT_RATE: 175,       // ms between repeats (about one step animation)
+  SWIPE_MIN: 24,          // px of finger travel for a swipe; less is a tap
+  SWIPE_TURN_INVERT: false, // false: swipe left = turn left. true: "drag the world" style
+};
+const KEYMAP = {
+  KeyW: "fwd", ArrowUp: "fwd", KeyS: "back", ArrowDown: "back",
+  KeyA: "left", KeyD: "right", KeyQ: "turnL", ArrowLeft: "turnL", KeyE: "turnR", ArrowRight: "turnR",
+  Space: "use", Enter: "use",
+};
+window.addEventListener("keydown", e => {
+  if (e.code === "KeyR" && Game.cleared) { Game.reset(); return; }
+  const act = KEYMAP[e.code]; if (!act) return;
+  e.preventDefault(); if (!e.repeat || act !== "use") Game.act(act);
+});
+
+// D-pad: pointer events (no 300ms click delay), hold to repeat
+document.querySelectorAll("#pad button").forEach(btn => {
+  let timer = null;
+  const stop = () => { clearTimeout(timer); clearInterval(timer); timer = null; btn.classList.remove("down"); };
+  btn.addEventListener("pointerdown", e => {
+    e.preventDefault();
+    try { btn.setPointerCapture(e.pointerId); } catch (_) {}
+    stop(); btn.classList.add("down");
+    const act = btn.dataset.act;
+    Game.act(act);
+    timer = setTimeout(() => { timer = setInterval(() => Game.act(act), INPUT.REPEAT_RATE); }, INPUT.REPEAT_DELAY);
+  });
+  ["pointerup", "pointercancel", "lostpointercapture"].forEach(ev => btn.addEventListener(ev, stop));
+});
+
+// 3D view: tap = use / open door (or restart when cleared); swipe = turn or step
+(() => {
+  const area = document.getElementById("viewWrap");
+  let start = null;
+  area.addEventListener("pointerdown", e => {
+    if (e.target.id === "fsBtn") return;
+    e.preventDefault(); start = { x: e.clientX, y: e.clientY, id: e.pointerId };
+    try { area.setPointerCapture(e.pointerId); } catch (_) {}
+  });
+  area.addEventListener("pointerup", e => {
+    if (!start || e.pointerId !== start.id) return;
+    const dx = e.clientX - start.x, dy = e.clientY - start.y; start = null;
+    if (Game.cleared) { Game.reset(); return; }
+    if (Math.max(Math.abs(dx), Math.abs(dy)) < INPUT.SWIPE_MIN) { Game.act("use"); return; }
+    if (Math.abs(dx) > Math.abs(dy)) {
+      const leftSwipe = dx < 0;
+      Game.act((leftSwipe !== INPUT.SWIPE_TURN_INVERT) ? "turnL" : "turnR");
+    } else Game.act(dy < 0 ? "fwd" : "back");
+  });
+  area.addEventListener("pointercancel", () => { start = null; });
+})();
+
+// Block browser gestures: long-press menu, pinch-zoom (iOS), double-tap zoom
+document.addEventListener("contextmenu", e => e.preventDefault());
+["gesturestart", "gesturechange"].forEach(ev => document.addEventListener(ev, e => e.preventDefault()));
+document.addEventListener("dblclick", e => e.preventDefault(), { passive: false });
+document.addEventListener("touchmove", e => { if (e.touches.length > 1 || e.target.closest("#app")) e.preventDefault(); }, { passive: false });
+
+// Fullscreen button (hidden where unsupported, e.g. iPhone Safari -> use Add to Home Screen)
+(() => {
+  const btn = document.getElementById("fsBtn"), root = document.documentElement;
+  const req = root.requestFullscreen || root.webkitRequestFullscreen;
+  if (!req || !(document.fullscreenEnabled || document.webkitFullscreenEnabled)) return;
+  btn.style.display = "block";
+  btn.addEventListener("click", () => {
+    const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+    if (fsEl) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+    else {
+      const p = req.call(root, { navigationUI: "hide" });
+      if (p && p.then) p.then(() => screen.orientation && screen.orientation.lock && screen.orientation.lock("landscape").catch(() => {})).catch(() => {});
+    }
+  });
+})();
+
+// Home-screen icon generated from the door texture (keeps the file self-contained)
+(() => {
+  const c = document.createElement("canvas"); c.width = c.height = 180;
+  const g = c.getContext("2d"), small = g.createImageData(TEX, TEX);
+  for (let i = 0; i < TEX * TEX; i++) {
+    small.data[i * 4] = Textures.door[i * 3]; small.data[i * 4 + 1] = Textures.door[i * 3 + 1];
+    small.data[i * 4 + 2] = Textures.door[i * 3 + 2]; small.data[i * 4 + 3] = 255;
+  }
+  const t = document.createElement("canvas"); t.width = t.height = TEX; t.getContext("2d").putImageData(small, 0, 0);
+  g.imageSmoothingEnabled = false; g.drawImage(t, 0, 0, 180, 180);
+  const link = document.createElement("link"); link.rel = "apple-touch-icon"; link.href = c.toDataURL();
+  document.head.appendChild(link);
+  const fav = document.createElement("link"); fav.rel = "icon"; fav.href = link.href; document.head.appendChild(fav);
+})();
+
+
+/* =====================================================================
+ * 7b. LAYOUT FIT  (landscape: give the 3D view exactly 16:10, side panel gets the rest)
+ * ===================================================================== */
+function fitLayout() {
+  const frame = document.getElementById("frame"), col = document.getElementById("viewCol");
+  const logEl = document.getElementById("log"), side = document.getElementById("side");
+  if (innerHeight >= innerWidth) { col.style.flex = ""; side.style.flex = ""; return; }
+  const cs = getComputedStyle(frame), gap = parseFloat(cs.gap) || 0;
+  const innerW = frame.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+  const innerH = frame.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+  const sideMin = Math.max(side.querySelector("#pad").offsetWidth, 180);
+  const viewH = innerH - logEl.offsetHeight - gap - 6;           // 6 = view border
+  const w = Math.min(viewH * 1.6 + 6, innerW - sideMin - gap);
+  col.style.flex = "0 0 " + Math.floor(w) + "px"; side.style.flex = "1 1 0";
+}
+addEventListener("resize", fitLayout); addEventListener("orientationchange", () => setTimeout(fitLayout, 100));
+fitLayout();
+
+/* =====================================================================
+ * 8. MAIN LOOP
+ * ===================================================================== */
+function frame(now) {
+  Game.update(now);
+  Renderer.render(Game.map, Game.cam, now);
+  UI.drawCompass(Game.player.dir);
+  UI.drawMinimap(Game.map, Game.player);
+  requestAnimationFrame(frame);
+}
+Game.reset();
+requestAnimationFrame(frame);
+window.Game = Game;   // handy for debugging / tests
+</script>
+</body>
+</html>
